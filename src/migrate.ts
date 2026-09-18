@@ -9,12 +9,9 @@ const runMigrations = async () => {
     port: Number(process.env.DB_PORT),
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
     multipleStatements: true,
   });
-  await connection.query(
-    `CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME}`,
-  );
-  await connection.query(`USE ${process.env.DB_NAME}`);
   await connection.query(`
   CREATE TABLE IF NOT EXISTS migrations (
     id INT AUTO_INCREMENT PRIMARY KEY,
