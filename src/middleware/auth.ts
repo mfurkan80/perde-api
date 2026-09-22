@@ -32,3 +32,27 @@ export const requireAuth = (
       .json({ message: "Geçersiz veya süresi dolmuş token." });
   }
 };
+
+export const optionalAuth = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return next();
+  }
+
+  const token = authHeader.substring(7);
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET as string) as {
+      userId: number;
+    };
+    req.userId = payload.userId;
+  } catch {
+    // Token geçersiz — sorun değil, anonim kullanıcı olarak devam ediyoruz.
+  }
+
+  next();
+};

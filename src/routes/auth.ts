@@ -99,4 +99,84 @@ router.get("/me", requireAuth, async (req, res) => {
   }
 });
 
+router.put("/profile", requireAuth, async (req, res) => {
+  const { username, email } = req.body;
+
+  if (!username || !email) {
+    return res.status(400).json({ message: "Tüm alanlar zorunludur." });
+  }
+
+  if (!email.includes("@")) {
+    return res.status(400).json({ message: "Geçersiz e-posta adresi." });
+  }
+  try {
+    const [rows] = await pool.query(
+      "SELECT id FROM users WHERE email = ? AND id != ?",
+      [email, req.userId],
+    );
+
+    if ((rows as any[]).length > 0) {
+      return res
+        .status(409)
+        .json({ message: "Bu e-posta başka bir hesapta kayıtlı." });
+    }
+    await pool.query("UPDATE users SET username = ?, email = ? WHERE id = ?", [
+      username,
+      email,
+      req.userId,
+    ]);
+
+    res.json({
+      user: { id: req.userId, username, email },
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Sunucu hatası." });
+  }
+});
+
+router.put("/password", requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: "Tüm alanlar zorunludur." });
+  }
+  if (newPassword.length < 6) {
+    return res
+      .status(400)
+      .json({ message: "Şifreniz en az 6 karakterli olmalıdır." });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      "SELECT password_hash FROM users WHERE id = ?",
+      [req.userId],
+    );
+    const users = rows as any[];
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı." });
+    }
+    const isValid = await bcrypt.compare(
+      currentPassword,
+      users[0].password_hash,
+    );
+
+    if (!isValid) {
+      return res.status(401).json({ message: "Mevcut şifre hatalı." });
+    }
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    await pool.query("UPDATE users SET password_hash = ? WHERE id = ?", [
+      newHash,
+      req.userId,
+    ]);
+
+    res.json({ message: "Şifre güncellendi." });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ message: "Sunucu hatası." });
+  }
+});
+
 export default router;
