@@ -7,7 +7,6 @@ const router = Router();
 router.post("/", optionalAuth, async (req, res) => {
   const { name, email, subject, message } = req.body;
 
-  // Tip kontrolü trim'den önce gelmeli, yoksa .trim() TypeError fırlatır.
   if (
     typeof name !== "string" ||
     typeof email !== "string" ||

@@ -38,7 +38,7 @@ router.post("/register", async (req, res) => {
 
     res.status(201).json({
       message: "Kayıt başarılı.",
-      user: { id: (result as any).insertId, email, username },
+      user: { id: (result as any).insertId, email, username, role: "user" },
     });
   } catch (err) {
     console.log(err);
@@ -54,7 +54,7 @@ router.post("/login", async (req, res) => {
   }
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, username, password_hash FROM users WHERE email = ?",
+      "SELECT id, email, username, password_hash, role FROM users WHERE email = ?",
       [email],
     );
     const users = rows as any[];
@@ -74,7 +74,12 @@ router.post("/login", async (req, res) => {
     );
     res.json({
       token,
-      user: { id: user.id, email: user.email, username: user.username },
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+      },
     });
   } catch (error) {
     return res.status(500).json({ message: "Sunucu hatası." });
@@ -84,7 +89,7 @@ router.post("/login", async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, username, created_at FROM users WHERE id = ?",
+      "SELECT id, email, username, created_at, role FROM users WHERE id = ?",
       [req.userId],
     );
     const users = rows as any[];
@@ -126,9 +131,12 @@ router.put("/profile", requireAuth, async (req, res) => {
       req.userId,
     ]);
 
-    res.json({
-      user: { id: req.userId, username, email },
-    });
+    const [userRows] = await pool.query(
+      "SELECT id, email, username, role FROM users WHERE id = ?",
+      [req.userId],
+    );
+
+    res.json({ user: (userRows as any[])[0] });
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Sunucu hatası." });

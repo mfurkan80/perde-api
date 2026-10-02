@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { pool } from "../db.js";
+
 declare global {
   namespace Express {
     interface Request {
@@ -50,9 +52,29 @@ export const optionalAuth = (
       userId: number;
     };
     req.userId = payload.userId;
-  } catch {
-    // Token geçersiz — sorun değil, anonim kullanıcı olarak devam ediyoruz.
-  }
+  } catch {}
 
   next();
+};
+
+export const requireAdmin = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const [rows] = await pool.query("SELECT role FROM users WHERE id = ?", [
+      req.userId,
+    ]);
+    const user = (rows as any[])[0];
+
+    if (!user || user.role !== "admin") {
+      return res.status(403).json({ message: "Bu işlem için yetkin yok." });
+    }
+
+    next();
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Sunucu hatası." });
+  }
 };
