@@ -10,6 +10,7 @@ import watchLogsRouter from "./routes/watchLogs.js";
 import adminRouter from "./routes/admin.js";
 import { verifyMailConnection } from "./mail.js";
 import { apiLimiter } from "./middleware/rateLimit.js";
+import { errorHandler, notFound } from "./middleware/errorHandler.js";
 
 const app = express();
 app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 0));
@@ -30,6 +31,8 @@ app.use("/api/admin", adminRouter);
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
+app.use(notFound);
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Sunucu ${PORT} portunda çalışıyor.`);
