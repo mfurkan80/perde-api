@@ -8,12 +8,16 @@ import favoritesRouter from "./routes/favorites.js";
 import tmdbRouter from "./routes/tmdb.js";
 import watchLogsRouter from "./routes/watchLogs.js";
 import adminRouter from "./routes/admin.js";
+import { verifyMailConnection } from "./mail.js";
+import { apiLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 0));
 const PORT = process.env.PORT ?? 3000;
 
 app.use(cors());
 app.use(express.json());
+app.use("/api", apiLimiter);
 
 app.use("/api/auth", authRouter);
 app.use("/api/favorites", favoritesRouter);
@@ -29,4 +33,5 @@ app.get("/health", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Sunucu ${PORT} portunda çalışıyor.`);
+  verifyMailConnection();
 });

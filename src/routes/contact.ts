@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { pool } from "../db.js";
 import { optionalAuth } from "../middleware/auth.js";
+import { sendMail } from "../mail.js";
+import { contactLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 
-router.post("/", optionalAuth, async (req, res) => {
+router.post("/", contactLimiter, optionalAuth, async (req, res) => {
   const { name, email, subject, message } = req.body;
 
   if (
@@ -60,6 +62,14 @@ router.post("/", optionalAuth, async (req, res) => {
     );
 
     res.status(201).json({ message: "Mesajınız alındı, teşekkürler." });
+    if (process.env.ADMIN_EMAIL) {
+      sendMail({
+        to: process.env.ADMIN_EMAIL,
+        replyTo: cleanEmail,
+        subject: `Yeni iletişim mesajı: ${cleanSubject}`,
+        text: `${cleanName} <${cleanEmail}> yazdı:\n\n${cleanMessage}`,
+      }).catch((err) => console.log("Bildirim e-postası gönderilemedi:", err));
+    }
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Sunucu hatası." });

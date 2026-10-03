@@ -3,10 +3,11 @@ import { pool } from "../db.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { requireAuth } from "../middleware/auth.js";
+import { loginLimiter, registerLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 
-router.post("/register", async (req, res) => {
+router.post("/register", registerLimiter, async (req, res) => {
   const { email, password, username } = req.body;
 
   if (!email || !password || !username) {
@@ -46,7 +47,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-router.post("/login", async (req, res) => {
+router.post("/login", loginLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../db.js";
 import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import { commentLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 
@@ -56,7 +57,7 @@ router.get("/:mediaType/:mediaId", optionalAuth, async (req, res) => {
   }
 });
 
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", commentLimiter, requireAuth, async (req, res) => {
   const { mediaId, mediaType, content, isSpoiler, parentId } = req.body;
 
   if (!mediaId || typeof mediaId !== "number") {
