@@ -6,12 +6,33 @@ import { requireAuth } from "../middleware/auth.js";
 import { loginLimiter, registerLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
+const USERNAME_MIN = 2;
+const USERNAME_MAX = 50;
+
+const cleanUsername = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+
+  if (trimmed.length < USERNAME_MIN || trimmed.length > USERNAME_MAX) {
+    return null;
+  }
+  return trimmed;
+};
 
 router.post("/register", registerLimiter, async (req, res) => {
   const { email, password, username } = req.body;
 
   if (!email || !password || !username) {
     return res.status(400).json({ message: "Tüm alanlar zorunludur." });
+  }
+
+  const name = cleanUsername(username);
+  if (name === null) {
+    return res.status(400).json({
+      message: `Kullanıcı adı ${USERNAME_MIN} ile ${USERNAME_MAX} karakter arasında olmalıdır.`,
+    });
   }
 
   if (password.length < 6) {
@@ -34,12 +55,17 @@ router.post("/register", registerLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
       "INSERT INTO users (email, password_hash, username) VALUES (?, ?, ?)",
-      [email, passwordHash, username],
+      [email, passwordHash, name],
     );
 
     res.status(201).json({
       message: "Kayıt başarılı.",
-      user: { id: (result as any).insertId, email, username, role: "user" },
+      user: {
+        id: (result as any).insertId,
+        email,
+        username: name,
+        role: "user",
+      },
     });
   } catch (err) {
     console.log(err);
@@ -82,7 +108,8 @@ router.post("/login", loginLimiter, async (req, res) => {
         role: user.role,
       },
     });
-  } catch (error) {
+  } catch (err) {
+    console.log(err);
     return res.status(500).json({ message: "Sunucu hatası." });
   }
 });
@@ -111,6 +138,12 @@ router.put("/profile", requireAuth, async (req, res) => {
   if (!username || !email) {
     return res.status(400).json({ message: "Tüm alanlar zorunludur." });
   }
+  const name = cleanUsername(username);
+  if (name === null) {
+    return res.status(400).json({
+      message: `Kullanıcı adı ${USERNAME_MIN} ile ${USERNAME_MAX} karakter arasında olmalıdır.`,
+    });
+  }
 
   if (!email.includes("@")) {
     return res.status(400).json({ message: "Geçersiz e-posta adresi." });
@@ -127,7 +160,7 @@ router.put("/profile", requireAuth, async (req, res) => {
         .json({ message: "Bu e-posta başka bir hesapta kayıtlı." });
     }
     await pool.query("UPDATE users SET username = ?, email = ? WHERE id = ?", [
-      username,
+      name,
       email,
       req.userId,
     ]);

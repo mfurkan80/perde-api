@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../db.js";
 import { requireAdmin, requireAuth } from "../middleware/auth.js";
+import { isMailEnabled, sendMail } from "../mail.js";
 
 const router = Router();
 
@@ -85,7 +86,7 @@ router.patch("/comments/:id", async (req, res) => {
 router.get("/messages", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT m.id, m.name, m.email, m.subject, m.message, m.is_read,
+      `SELECT m.id, m.name, m.email, m.subject, m.message, m.is_read,m.replied_at,
               m.created_at, u.username
        FROM contact_messages m
        LEFT JOIN users u ON u.id = m.user_id
@@ -101,6 +102,7 @@ router.get("/messages", async (req, res) => {
       message: row.message,
       isRead: Boolean(row.is_read),
       createdAt: row.created_at,
+      repliedAt: row.replied_at,
       username: row.username,
     }));
 
@@ -138,6 +140,63 @@ router.patch("/messages/:id", async (req, res) => {
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Sunucu hatası." });
+  }
+});
+router.post("/messages/:id/reply", async (req, res) => {
+  const id = parseId(req.params.id);
+
+  if (id === null) {
+    return res.status(400).json({ message: "Geçersiz mesaj." });
+  }
+
+  if (!isMailEnabled) {
+    return res
+      .status(503)
+      .json({ message: "E-posta gönderimi şuanda kapalı." });
+  }
+
+  const { reply } = req.body;
+
+  if (typeof reply !== "string") {
+    return res.status(400).json({ message: "Geçersiz mesaj türü." });
+  }
+
+  const cleanReply = reply.trim();
+
+  if (cleanReply.length < 2 || cleanReply.length > 5000) {
+    return res
+      .status(400)
+      .json({ message: "Yanıt 2 ile 5000 karakter arasında olmalıdır." });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      "SELECT email, subject, message FROM contact_messages WHERE id = ?",
+      [id],
+    );
+    const messages = rows as any[];
+
+    if (messages.length === 0) {
+      return res.status(404).json({ message: "Mesaj bulunamadı." });
+    }
+
+    const original = messages[0];
+
+    await sendMail({
+      to: original.email,
+      subject: `Re: ${original.subject}`,
+      text: `${cleanReply}\n\n---\nMesajınız:\n${original.message}`,
+    });
+
+    await pool.query(
+      "UPDATE contact_messages SET is_read = TRUE, replied_at = NOW()  WHERE id = ?",
+      [id],
+    );
+
+    res.json({ message: "Yanıt gönderildi." });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Yanıt gönderilemedi." });
   }
 });
 
