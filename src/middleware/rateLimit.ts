@@ -47,3 +47,13 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: tooMany("Çok fazla istek gönderildi, biraz bekle."),
 });
+
+export const passwordResetLimiter = rateLimit({
+  windowMs: HOUR,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: tooMany(
+    "Çok fazla şifre sıfırlama isteği, bir saat sonra tekrar dene.",
+  ),
+});
