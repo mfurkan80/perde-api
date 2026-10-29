@@ -57,3 +57,11 @@ export const passwordResetLimiter = rateLimit({
     "Çok fazla şifre sıfırlama isteği, bir saat sonra tekrar dene.",
   ),
 });
+
+export const verificationLimiter = rateLimit({
+  windowMs: HOUR,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: tooMany("Çok fazla doğrulama isteği, biraz sonra tekrar dene."),
+});

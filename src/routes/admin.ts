@@ -227,7 +227,7 @@ router.delete("/messages/:id", async (req, res) => {
 router.get("/users", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT u.id, u.username, u.email, u.role, u.created_at,
+      `SELECT u.id, u.username, u.email, u.role, u.created_at, u.email_verified_at,
               (SELECT COUNT(*) FROM comments c WHERE c.user_id = u.id) AS comment_count,
               (SELECT COUNT(*) FROM favorites f WHERE f.user_id = u.id) AS favorite_count,
               (SELECT COUNT(*) FROM watch_logs w WHERE w.user_id = u.id) AS watch_count
@@ -242,12 +242,88 @@ router.get("/users", async (req, res) => {
       email: row.email,
       role: row.role,
       createdAt: row.created_at,
+      emailVerifiedAt: row.email_verified_at,
       commentCount: Number(row.comment_count),
       favoriteCount: Number(row.favorite_count),
       watchCount: Number(row.watch_count),
     }));
 
     res.json({ users });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Sunucu hatası." });
+  }
+});
+
+router.get("/users/:id/activity", async (req, res) => {
+  const id = parseId(req.params.id);
+
+  if (id === null) {
+    return res.status(400).json({ message: "Geçersiz kullanıcı." });
+  }
+
+  try {
+    const [userRows] = await pool.query("SELECT id FROM users WHERE id = ?", [
+      id,
+    ]);
+
+    if ((userRows as any[]).length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı." });
+    }
+
+    const [[commentRows], [favoriteRows], [watchLogRows]] = await Promise.all([
+      pool.query(
+        `SELECT id, media_id, media_type, parent_id, content, is_spoiler, status, created_at
+         FROM comments WHERE user_id = ?
+         ORDER BY created_at DESC, id DESC`,
+        [id],
+      ),
+      pool.query(
+        `SELECT media_id, media_type, created_at
+         FROM favorites WHERE user_id = ?
+         ORDER BY created_at DESC, id DESC`,
+        [id],
+      ),
+      pool.query(
+        `SELECT id, media_id, media_type,
+                DATE_FORMAT(watched_on, '%Y-%m-%d') AS watched_on,
+                companions, location, rating, note, created_at
+         FROM watch_logs WHERE user_id = ?
+         ORDER BY watched_on DESC, id DESC`,
+        [id],
+      ),
+    ]);
+
+    const comments = (commentRows as any[]).map((row) => ({
+      id: row.id,
+      mediaId: row.media_id,
+      mediaType: row.media_type,
+      parentId: row.parent_id,
+      content: row.content,
+      isSpoiler: Boolean(row.is_spoiler),
+      status: row.status,
+      createdAt: row.created_at,
+    }));
+
+    const favorites = (favoriteRows as any[]).map((row) => ({
+      mediaId: row.media_id,
+      mediaType: row.media_type,
+      createdAt: row.created_at,
+    }));
+
+    const watchLogs = (watchLogRows as any[]).map((row) => ({
+      id: row.id,
+      mediaId: row.media_id,
+      mediaType: row.media_type,
+      watchedOn: row.watched_on,
+      companions: row.companions,
+      location: row.location,
+      rating: row.rating,
+      note: row.note,
+      createdAt: row.created_at,
+    }));
+
+    res.json({ comments, favorites, watchLogs });
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Sunucu hatası." });

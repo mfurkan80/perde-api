@@ -9,9 +9,11 @@ import {
   loginLimiter,
   passwordResetLimiter,
   registerLimiter,
+  verificationLimiter,
 } from "../middleware/rateLimit.js";
 
 const router = Router();
+const SITE_NAME = "Perde Özeti";
 const USERNAME_MIN = 2;
 const USERNAME_MAX = 50;
 
@@ -32,6 +34,42 @@ const RESET_TOKEN_TTL_MINUTES = 60;
 
 const hashToken = (token: string) =>
   crypto.createHash("sha256").update(token).digest("hex");
+
+const VERIFY_TOKEN_TTL_HOURS = 24;
+
+const sendVerificationEmail = async (user: {
+  id: number;
+  email: string;
+  username: string;
+}) => {
+  const token = crypto.randomBytes(32).toString("hex");
+
+  await pool.query("DELETE FROM email_verifications WHERE user_id = ?", [
+    user.id,
+  ]);
+  await pool.query(
+    `INSERT INTO email_verifications (user_id, token_hash, expires_at)
+     VALUES (?, ?, NOW() + INTERVAL ? HOUR)`,
+    [user.id, hashToken(token), VERIFY_TOKEN_TTL_HOURS],
+  );
+
+  const link = `${process.env.APP_URL}/verify-email?token=${token}`;
+
+  await sendMail({
+    to: user.email,
+    subject: `${SITE_NAME} hesabını doğrula`,
+    text: [
+      `Merhaba ${user.username},`,
+      "",
+      `${SITE_NAME}'ne hoş geldin! Hesabını etkinleştirmek için bu bağlantıya tıkla:`,
+      "",
+      link,
+      "",
+      "Bu bağlantı 24 saat geçerlidir.",
+      `${SITE_NAME}'ne sen kayıt olmadıysan bu e-postayı görmezden gelebilirsin.`,
+    ].join("\n"),
+  });
+};
 
 router.post("/register", registerLimiter, async (req, res) => {
   const { email, password, username } = req.body;
@@ -70,14 +108,19 @@ router.post("/register", registerLimiter, async (req, res) => {
       [email, passwordHash, name],
     );
 
-    res.status(201).json({
-      message: "Kayıt başarılı.",
-      user: {
+    try {
+      await sendVerificationEmail({
         id: (result as any).insertId,
         email,
         username: name,
-        role: "user",
-      },
+      });
+    } catch (err) {
+      console.log("Doğrulama e-postası gönderilemedi:", err);
+    }
+
+    res.status(201).json({
+      message:
+        "Kayıt başarılı! Hesabını doğrulamak için e-postana gelen bağlantıya tıkla.",
     });
   } catch (err) {
     console.log(err);
@@ -93,7 +136,7 @@ router.post("/login", loginLimiter, async (req, res) => {
   }
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, username, password_hash, role FROM users WHERE email = ?",
+      "SELECT id, email, username, password_hash, role, email_verified_at FROM users WHERE email = ?",
       [email],
     );
     const users = rows as any[];
@@ -106,6 +149,14 @@ router.post("/login", loginLimiter, async (req, res) => {
     if (!isValid) {
       return res.status(401).json({ message: "E-posta veya şifre hatalı." });
     }
+
+    if (!user.email_verified_at) {
+      return res.status(403).json({
+        message: "E-posta adresin henüz doğrulanmadı. Gelen kutunu kontrol et.",
+        code: "EMAIL_NOT_VERIFIED",
+      });
+    }
+
     const token = jwt.sign(
       { userId: user.id },
       process.env.JWT_SECRET as string,
@@ -163,11 +214,11 @@ router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
 
     await sendMail({
       to: user.email,
-      subject: "Perde şifre sıfırlama",
+      subject: `${SITE_NAME} şifre sıfırlama`,
       text: [
         `Merhaba ${user.username},`,
         "",
-        "Perde hesabın için şifre sıfırlama isteği aldık. Yeni şifreni belirlemek için bu bağlantıya tıkla:",
+        `${SITE_NAME} hesabın için şifre sıfırlama isteği aldık. Yeni şifreni belirlemek için bu bağlantıya tıkla:`,
         "",
         link,
         "",
@@ -223,12 +274,86 @@ router.post("/reset-password", passwordResetLimiter, async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await pool.query("UPDATE users SET password_hash = ? WHERE id = ?", [
-      passwordHash,
-      reset.user_id,
-    ]);
+    await pool.query(
+      `UPDATE users
+       SET password_hash = ?, email_verified_at = COALESCE(email_verified_at, NOW())
+       WHERE id = ?`,
+      [passwordHash, reset.user_id],
+    );
 
     res.json({ message: "Şifren güncellendi. Artık giriş yapabilirsin." });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Sunucu hatası." });
+  }
+});
+
+router.post("/verify-email", verificationLimiter, async (req, res) => {
+  const { token } = req.body;
+
+  if (typeof token !== "string") {
+    return res.status(400).json({ message: "Geçersiz bağlantı." });
+  }
+
+  const invalidMessage =
+    "Doğrulama bağlantısı geçersiz ya da süresi dolmuş. Yeni bir bağlantı iste.";
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, user_id FROM email_verifications
+       WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()`,
+      [hashToken(token)],
+    );
+    const verifications = rows as any[];
+
+    if (verifications.length === 0) {
+      return res.status(400).json({ message: invalidMessage });
+    }
+
+    const verification = verifications[0];
+    const [result] = await pool.query(
+      "UPDATE email_verifications SET used_at = NOW() WHERE id = ? AND used_at IS NULL",
+      [verification.id],
+    );
+
+    if ((result as any).affectedRows === 0) {
+      return res.status(400).json({ message: invalidMessage });
+    }
+
+    await pool.query(
+      "UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE id = ?",
+      [verification.user_id],
+    );
+
+    res.json({ message: "E-posta adresin doğrulandı. Artık giriş yapabilirsin." });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Sunucu hatası." });
+  }
+});
+
+router.post("/resend-verification", verificationLimiter, async (req, res) => {
+  const { email } = req.body;
+
+  if (typeof email !== "string" || !email.includes("@")) {
+    return res.status(400).json({ message: "Geçersiz e-posta adresi." });
+  }
+
+  const okMessage =
+    "Bu adres kayıtlı ve henüz doğrulanmamışsa yeni bir doğrulama bağlantısı gönderildi.";
+
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, email, username FROM users WHERE email = ? AND email_verified_at IS NULL",
+      [email.trim()],
+    );
+    const users = rows as any[];
+
+    if (users.length > 0) {
+      await sendVerificationEmail(users[0]);
+    }
+
+    res.json({ message: okMessage });
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Sunucu hatası." });
