@@ -8,6 +8,7 @@ import favoritesRouter from "./routes/favorites.js";
 import tmdbRouter from "./routes/tmdb.js";
 import watchLogsRouter from "./routes/watchLogs.js";
 import adminRouter from "./routes/admin.js";
+import sitemapRouter from "./routes/sitemap.js";
 import { verifyMailConnection } from "./mail.js";
 import { apiLimiter } from "./middleware/rateLimit.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
@@ -27,6 +28,7 @@ app.use("/api/contact", contactRouter);
 app.use("/api/comments", commentsRouter);
 app.use("/api/watch-logs", watchLogsRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/sitemap.xml", sitemapRouter);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
